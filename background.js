@@ -219,7 +219,7 @@ async function startStreamingAudio(text, settings) {
     // Send the audio data to the offscreen document
     chrome.runtime.sendMessage({ 
       type: 'processAudioData', 
-      audioData: Array.from(new Uint8Array(arrayBuffer)),
+      audioData: arrayBuffer,
       mimeType: mimeType,
       isRecording: isRecording
     });
