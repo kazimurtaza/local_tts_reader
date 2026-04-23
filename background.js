@@ -2,6 +2,10 @@ let offscreenDocument = null;
 let isRecording = false;
 let currentPlayerState = 'stopped';
 let currentAbortController = null;
+let chunkQueue = [];
+let currentChunkIndex = 0;
+let isChunkedMode = false;
+let lastSettings = null;
 
 // Create or get the offscreen document
 async function setupOffscreenDocument() {
@@ -192,16 +196,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         currentAbortController.abort();
         currentAbortController = null;
       }
+      isChunkedMode = false;
+      chunkQueue = [];
       sendResponse({ success: true });
+      return true;
+
+    case 'streamComplete':
+      if (isChunkedMode && currentChunkIndex < chunkQueue.length - 1) {
+        currentChunkIndex++;
+        fetchAndSendChunk(chunkQueue[currentChunkIndex], lastSettings);
+      } else {
+        isChunkedMode = false;
+        chunkQueue = [];
+      }
       return true;
   }
 });
 
-// Start streaming audio from the TTS server
-async function startStreamingAudio(text, settings) {
-  try {
-    await setupOffscreenDocument();
+// Split text into chunks at sentence boundaries
+function chunkText(text, maxChunkSize = 500) {
+  if (text.length <= maxChunkSize) return [text];
 
+  const chunks = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxChunkSize) {
+      chunks.push(remaining);
+      break;
+    }
+
+    let splitPoint = remaining.lastIndexOf('. ', maxChunkSize);
+    if (splitPoint < maxChunkSize * 0.3) splitPoint = remaining.lastIndexOf('! ', maxChunkSize);
+    if (splitPoint < maxChunkSize * 0.3) splitPoint = remaining.lastIndexOf('? ', maxChunkSize);
+    if (splitPoint < maxChunkSize * 0.3) splitPoint = remaining.lastIndexOf(' ', maxChunkSize);
+    if (splitPoint < 1) splitPoint = maxChunkSize;
+
+    chunks.push(remaining.substring(0, splitPoint + 1).trim());
+    remaining = remaining.substring(splitPoint + 1).trim();
+  }
+
+  return chunks;
+}
+
+// Fetch a single chunk and send to offscreen document
+async function fetchAndSendChunk(text, settings) {
+  try {
     currentAbortController = new AbortController();
 
     const headers = {
@@ -230,21 +270,19 @@ async function startStreamingAudio(text, settings) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Get the audio data as a blob
     const audioBlob = await response.blob();
     const mimeType = audioBlob.type || 'audio/mpeg';
-
-    // Convert blob to array buffer to send to offscreen document
     const arrayBuffer = await audioBlob.arrayBuffer();
 
     currentAbortController = null;
 
-    // Send the audio data to the offscreen document
+    const isLastChunk = !isChunkedMode || currentChunkIndex >= chunkQueue.length - 1;
+
     chrome.runtime.sendMessage({
       type: 'processAudioData',
       audioData: arrayBuffer,
       mimeType: mimeType,
-      isRecording: isRecording
+      isRecording: isRecording && isLastChunk
     });
   } catch (error) {
     if (error.name === 'AbortError') {
@@ -252,18 +290,36 @@ async function startStreamingAudio(text, settings) {
       chrome.runtime.sendMessage({ type: 'playerStateUpdate', state: 'stopped' });
       return;
     }
+    isChunkedMode = false;
+    chunkQueue = [];
     console.error('Error streaming audio:', error);
-    chrome.runtime.sendMessage({ 
-      type: 'streamError', 
-      error: error.message 
+    chrome.runtime.sendMessage({
+      type: 'streamError',
+      error: error.message
     });
-    
-    // Update state to stopped on error
     currentPlayerState = 'stopped';
-    chrome.runtime.sendMessage({ 
-      type: 'playerStateUpdate', 
-      state: 'stopped' 
+    chrome.runtime.sendMessage({
+      type: 'playerStateUpdate',
+      state: 'stopped'
     });
+  }
+}
+
+// Start streaming audio from the TTS server
+async function startStreamingAudio(text, settings) {
+  await setupOffscreenDocument();
+
+  lastSettings = settings;
+  const chunks = chunkText(text);
+
+  if (chunks.length <= 1) {
+    isChunkedMode = false;
+    await fetchAndSendChunk(chunks[0], settings);
+  } else {
+    isChunkedMode = true;
+    chunkQueue = chunks;
+    currentChunkIndex = 0;
+    await fetchAndSendChunk(chunkQueue[0], settings);
   }
 }
 
