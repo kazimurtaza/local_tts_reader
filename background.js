@@ -210,6 +210,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chunkQueue = [];
       }
       return true;
+
+    case 'fetchVoices':
+      (async () => {
+        try {
+          const settings = await chrome.storage.local.get({ serverUrl: 'http://10.0.0.172:8880/v1/audio/speech', apiKey: '' });
+          const baseUrl = settings.serverUrl.replace(/\/v1\/audio\/speech$/, '');
+          const headers = {};
+          if (settings.apiKey) headers['Authorization'] = `Bearer ${settings.apiKey}`;
+
+          const response = await fetch(`${baseUrl}/v1/audio/voices`, { headers });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          sendResponse({ voices: data.data || data });
+        } catch (error) {
+          sendResponse({ voices: null, error: error.message });
+        }
+      })();
+      return true;
   }
 });
 

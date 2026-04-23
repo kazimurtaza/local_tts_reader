@@ -178,7 +178,33 @@ document.addEventListener('DOMContentLoaded', async function() {
   
   // Sync player state
   syncPlayerState();
-  
+
+  // Load voices from server
+  async function loadVoices() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'fetchVoices' });
+      if (!response.voices || !Array.isArray(response.voices)) return;
+
+      const voiceSelect = document.getElementById('voice');
+      const currentValue = voiceSelect.value;
+
+      voiceSelect.innerHTML = '';
+      response.voices.forEach(voice => {
+        const option = document.createElement('option');
+        option.value = voice.voice_id || voice.id || voice;
+        option.textContent = voice.name || voice.voice_id || voice.id || voice;
+        voiceSelect.appendChild(option);
+      });
+
+      if (response.voices.some(v => (v.voice_id || v.id || v) === currentValue)) {
+        voiceSelect.value = currentValue;
+      }
+    } catch (e) {
+      // Fallback to hardcoded voices
+    }
+  }
+  loadVoices();
+
   // Start seek bar updates
   let updateInterval = startSeekBarUpdates();
   
