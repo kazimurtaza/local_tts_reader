@@ -287,9 +287,9 @@ async function fetchAndSendChunk(text, settings) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const audioBlob = await response.blob();
-    const arrayBuffer = await audioBlob.arrayBuffer();
-    const mimeType = audioBlob.type || 'audio/mpeg';
+    const arrayBuffer = await response.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const mimeType = 'audio/mpeg';
 
     currentAbortController = null;
 
@@ -297,7 +297,7 @@ async function fetchAndSendChunk(text, settings) {
 
     chrome.runtime.sendMessage({
       type: 'processAudioData',
-      audioData: arrayBuffer,
+      audioData: Array.from(uint8Array),
       mimeType: mimeType,
       isRecording: isRecording && isLastChunk
     });

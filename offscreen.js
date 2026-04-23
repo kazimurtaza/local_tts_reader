@@ -14,7 +14,7 @@ function processAudioData(audioData, mimeType, isRecording) {
   try {
     initAudio();
 
-    const blob = new Blob([audioData], { type: mimeType });
+    const blob = new Blob([new Uint8Array(audioData)], { type: mimeType });
     const audioUrl = URL.createObjectURL(blob);
 
     if (isRecording) {
