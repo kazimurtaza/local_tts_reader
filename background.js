@@ -271,3 +271,35 @@ async function startStreamingAudio(text, settings) {
 chrome.runtime.onInstalled.addListener(() => {
   setupContextMenu();
 });
+
+// Keyboard shortcuts
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === 'read-selection') {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) return;
+
+    let text = '';
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        function: () => window.getSelection().toString().trim() || document.body.innerText
+      });
+      text = results[0].result;
+    } catch (e) {
+      console.error('Cannot access page:', e);
+      return;
+    }
+
+    if (text) processAndReadText(text, tab.id);
+  }
+
+  if (command === 'stop-playback') {
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+    }
+    chrome.runtime.sendMessage({ type: 'stop' });
+    currentPlayerState = 'stopped';
+    chrome.runtime.sendMessage({ type: 'playerStateUpdate', state: 'stopped' });
+  }
+});

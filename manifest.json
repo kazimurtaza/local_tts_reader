@@ -10,6 +10,20 @@
     "offscreen",
     "contextMenus"
   ],
+  "commands": {
+    "read-selection": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "Read selected text aloud"
+    },
+    "stop-playback": {
+      "suggested_key": {
+        "default": "Alt+X"
+      },
+      "description": "Stop current playback"
+    }
+  },
   "host_permissions": [
     "http://localhost:8000/*",
     "http://*/*",
