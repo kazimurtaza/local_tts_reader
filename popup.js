@@ -264,6 +264,27 @@ document.addEventListener('DOMContentLoaded', async function() {
       updateInterval = null;
     }
   });
+
+  // Speak test text button
+  document.getElementById('speakTestBtn').addEventListener('click', async function() {
+    const text = document.getElementById('testText').value.trim();
+    if (!text) {
+      updateStatus('Enter some text first', true);
+      return;
+    }
+    const settings = getSettings();
+    const processedText = processText(text, settings);
+    await saveSettings();
+    updateControlButtons('loading');
+    try {
+      await audioPlayer.play(processedText, settings);
+      if (updateInterval) clearInterval(updateInterval);
+      updateInterval = startSeekBarUpdates();
+    } catch (error) {
+      updateStatus(error.message, true);
+      updateControlButtons('stopped');
+    }
+  });
   
   // Download button
   document.getElementById('downloadBtn').addEventListener('click', function() {
