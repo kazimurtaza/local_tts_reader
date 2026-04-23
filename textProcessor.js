@@ -47,7 +47,8 @@ class TextProcessor {
     
     // Replace common symbols with words
     processedText = processedText.replace(/&/g, ' and ');
-    processedText = processedText.replace(/\$/g, ' dollars ');
+    processedText = processedText.replace(/\$(\d[\d,]*)/g, '$1 dollars');
+    processedText = processedText.replace(/\$(?!\d)/g, ' dollar ');
     processedText = processedText.replace(/%/g, ' percent ');
     processedText = processedText.replace(/\^/g, ' ');
     
@@ -63,37 +64,7 @@ class TextProcessor {
    * @returns {string} - Text with processed URLs
    */
   static processUrls(text) {
-    // Regular expression for URLs
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    
-    return text.replace(urlRegex, (url) => {
-      try {
-        const urlObj = new URL(url);
-        const domain = urlObj.hostname;
-        
-        // Extract the domain name without subdomains
-        let domainName = domain.split('.');
-        if (domainName.length > 2) {
-          // Handle cases like www.example.com
-          if (domainName[0] === 'www') {
-            domainName = domainName.slice(1);
-          }
-          // Get the main domain part
-          domainName = domainName.slice(-2, -1)[0];
-        } else {
-          // Handle cases like example.com
-          domainName = domainName[0];
-        }
-        
-        // Capitalize first letter
-        domainName = domainName.charAt(0).toUpperCase() + domainName.slice(1);
-        
-        return `[${domainName} dot ${domain.split('.').pop()} link]`;
-      } catch (e) {
-        // If URL parsing fails, return a generic placeholder
-        return '[web link]';
-      }
-    });
+    return text.replace(/(https?:\/\/[^\s]+)/g, '');
   }
 }
 
