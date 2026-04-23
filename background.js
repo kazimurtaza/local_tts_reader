@@ -200,7 +200,8 @@ async function startStreamingAudio(text, settings) {
         model: 'tts-1',
         voice: settings.voice,
         input: text,
-        speed: parseFloat(settings.speed)
+        speed: parseFloat(settings.speed),
+        stream: false
       })
     });
 
