@@ -5,10 +5,10 @@ let currentAbortController = null;
 let chunkQueue = [];
 let currentChunkIndex = 0;
 let isChunkedMode = false;
+let lastSettings = null;
 
-// Create or get the offscreen document
+// Create or get the offscreen document, re-creating if Chrome auto-closed it
 async function setupOffscreenDocument() {
-  // Check if we already have an offscreen document
   const existingContexts = await chrome.runtime.getContexts({
     contextTypes: ['OFFSCREEN_DOCUMENT']
   });
@@ -18,12 +18,39 @@ async function setupOffscreenDocument() {
     return;
   }
 
-  // Create an offscreen document
-  await chrome.offscreen.createDocument({
-    url: 'offscreen.html',
-    reasons: ['AUDIO_PLAYBACK'],
-    justification: 'Playing TTS audio in the background'
-  });
+  // Chrome auto-closes offscreen docs after 30s inactivity — recreate
+  try {
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['AUDIO_PLAYBACK'],
+      justification: 'Playing TTS audio in the background'
+    });
+  } catch (e) {
+    if (e.message?.includes('Only a single offscreen')) {
+      await chrome.offscreen.closeDocument();
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['AUDIO_PLAYBACK'],
+        justification: 'Playing TTS audio in the background'
+      });
+    } else {
+      throw e;
+    }
+  }
+}
+
+// Send message to offscreen, retrying if it was killed
+async function sendToOffscreen(message) {
+  try {
+    await chrome.runtime.sendMessage(message);
+  } catch (e) {
+    if (e.message?.includes('Receiving end does not exist') || e.message?.includes('Could not establish connection')) {
+      await setupOffscreenDocument();
+      await chrome.runtime.sendMessage(message);
+    } else {
+      throw e;
+    }
+  }
 }
 
 // Set up context menu items
@@ -139,10 +166,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
       
     case 'controlAudio':
-      chrome.runtime.sendMessage({ 
-        type: message.action, 
-        data: message.data 
-      });
+      sendToOffscreen({ type: message.action, data: message.data });
       return true;
       
     case 'stateUpdate':
@@ -169,20 +193,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
       
     case 'seek':
-      chrome.runtime.sendMessage({ 
-        type: 'seek', 
-        time: message.time 
-      }, (response) => {
-        sendResponse(response);
-      });
+      (async () => {
+        try {
+          const resp = await chrome.runtime.sendMessage({ type: 'seek', time: message.time });
+          sendResponse(resp);
+        } catch (e) {
+          if (e.message?.includes('Receiving end does not exist')) {
+            await setupOffscreenDocument();
+            const resp = await chrome.runtime.sendMessage({ type: 'seek', time: message.time });
+            sendResponse(resp);
+          } else {
+            sendResponse({ success: false });
+          }
+        }
+      })();
       return true;
-      
+
     case 'getTimeInfo':
-      chrome.runtime.sendMessage({ 
-        type: 'getTimeInfo' 
-      }, (response) => {
-        sendResponse(response);
-      });
+      (async () => {
+        try {
+          const resp = await chrome.runtime.sendMessage({ type: 'getTimeInfo' });
+          sendResponse(resp);
+        } catch (e) {
+          if (e.message?.includes('Receiving end does not exist')) {
+            sendResponse({ timeInfo: null });
+          } else {
+            sendResponse({ timeInfo: null });
+          }
+        }
+      })();
       return true;
       
     case 'timeUpdate':
@@ -203,11 +242,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'streamComplete':
       if (isChunkedMode && currentChunkIndex < chunkQueue.length - 1) {
         currentChunkIndex++;
-        fetchAndSendChunk(chunkQueue[currentChunkIndex]);
+        if (lastSettings) {
+          fetchAndSendChunk(chunkQueue[currentChunkIndex], lastSettings);
+        }
       } else {
         isChunkedMode = false;
         chunkQueue = [];
       }
+      return true;
+
+    case 'keepalive':
       return true;
 
     case 'fetchVoices':
@@ -295,7 +339,10 @@ async function fetchAndSendChunk(text, settings) {
 
     const isLastChunk = !isChunkedMode || currentChunkIndex >= chunkQueue.length - 1;
 
-    chrome.runtime.sendMessage({
+    // Ensure offscreen document is alive before sending (Chrome kills it after 30s)
+    await setupOffscreenDocument();
+
+    await sendToOffscreen({
       type: 'processAudioData',
       audioData: Array.from(uint8Array),
       mimeType: mimeType,
@@ -324,6 +371,7 @@ async function fetchAndSendChunk(text, settings) {
 
 // Start streaming audio from the TTS server
 async function startStreamingAudio(text, settings) {
+  lastSettings = settings;
   await setupOffscreenDocument();
 
   const chunks = chunkText(text);
@@ -370,7 +418,7 @@ chrome.commands.onCommand.addListener(async (command) => {
       currentAbortController.abort();
       currentAbortController = null;
     }
-    chrome.runtime.sendMessage({ type: 'stop' });
+    sendToOffscreen({ type: 'stop' });
     currentPlayerState = 'stopped';
     chrome.runtime.sendMessage({ type: 'playerStateUpdate', state: 'stopped' });
   }

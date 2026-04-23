@@ -1,5 +1,21 @@
 let audioElement = null;
 let isPlaying = false;
+let keepaliveInterval = null;
+
+function startKeepalive() {
+  if (keepaliveInterval) return;
+  // Ping every 25s to prevent Chrome's 30s inactivity timeout
+  keepaliveInterval = setInterval(() => {
+    chrome.runtime.sendMessage({ type: 'keepalive' }).catch(() => {});
+  }, 25000);
+}
+
+function stopKeepalive() {
+  if (keepaliveInterval) {
+    clearInterval(keepaliveInterval);
+    keepaliveInterval = null;
+  }
+}
 
 function initAudio() {
   if (!audioElement) {
@@ -42,16 +58,19 @@ function playAudioUrl(audioUrl) {
 
     audioElement.onplay = () => {
       isPlaying = true;
+      startKeepalive();
       chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'playing' });
     };
 
     audioElement.onpause = () => {
       isPlaying = false;
+      stopKeepalive();
       chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'paused' });
     };
 
     audioElement.onended = () => {
       isPlaying = false;
+      stopKeepalive();
       chrome.runtime.sendMessage({ type: 'stateUpdate', state: 'stopped' });
       chrome.runtime.sendMessage({ type: 'streamComplete' });
     };
