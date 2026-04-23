@@ -246,25 +246,10 @@ async function fetchAndSendChunk(text, settings) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Read the streaming response progressively
-    const reader = response.body.getReader();
-    const chunks = [];
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-
-    // Assemble into a single ArrayBuffer
-    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    const arrayBuffer = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      arrayBuffer.set(chunk, offset);
-      offset += chunk.length;
-    }
-
-    const mimeType = response.headers.get('content-type') || 'audio/mpeg';
+    // Read the streaming response
+    const audioBlob = await response.blob();
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const mimeType = audioBlob.type || 'audio/mpeg';
 
     currentAbortController = null;
 
