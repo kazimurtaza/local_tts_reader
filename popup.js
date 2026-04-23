@@ -19,8 +19,8 @@ function updateControlButtons(state) {
   // Hide loading indicator by default
   loadingIndicator.style.display = 'none';
   
-  // Stop button is always enabled (except during loading)
-  stopBtn.disabled = state === 'loading';
+  // Stop button is always enabled
+  stopBtn.disabled = false;
   
   switch(state) {
     case 'loading':

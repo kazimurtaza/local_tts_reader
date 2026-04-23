@@ -1,6 +1,7 @@
 let offscreenDocument = null;
 let isRecording = false;
 let currentPlayerState = 'stopped';
+let currentAbortController = null;
 
 // Create or get the offscreen document
 async function setupOffscreenDocument() {
@@ -182,6 +183,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Forward time updates to the popup
       chrome.runtime.sendMessage(message);
       return true;
+
+    case 'abortStreaming':
+      if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+      }
+      sendResponse({ success: true });
+      return true;
   }
 });
 
@@ -189,7 +198,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function startStreamingAudio(text, settings) {
   try {
     await setupOffscreenDocument();
-    
+
+    currentAbortController = new AbortController();
+
     const response = await fetch(settings.serverUrl, {
       method: 'POST',
       headers: {
@@ -202,7 +213,8 @@ async function startStreamingAudio(text, settings) {
         input: text,
         speed: parseFloat(settings.speed),
         stream: false
-      })
+      }),
+      signal: currentAbortController.signal
     });
 
     if (!response.ok) {
@@ -212,18 +224,25 @@ async function startStreamingAudio(text, settings) {
     // Get the audio data as a blob
     const audioBlob = await response.blob();
     const mimeType = audioBlob.type || 'audio/mpeg';
-    
+
     // Convert blob to array buffer to send to offscreen document
     const arrayBuffer = await audioBlob.arrayBuffer();
-    
+
+    currentAbortController = null;
+
     // Send the audio data to the offscreen document
-    chrome.runtime.sendMessage({ 
-      type: 'processAudioData', 
+    chrome.runtime.sendMessage({
+      type: 'processAudioData',
       audioData: arrayBuffer,
       mimeType: mimeType,
       isRecording: isRecording
     });
   } catch (error) {
+    if (error.name === 'AbortError') {
+      currentPlayerState = 'stopped';
+      chrome.runtime.sendMessage({ type: 'playerStateUpdate', state: 'stopped' });
+      return;
+    }
     console.error('Error streaming audio:', error);
     chrome.runtime.sendMessage({ 
       type: 'streamError', 

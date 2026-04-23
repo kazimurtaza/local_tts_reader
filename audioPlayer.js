@@ -48,6 +48,7 @@ class AudioPlayer {
   
     stop() {
       if (this.isInitialized) {
+        chrome.runtime.sendMessage({ type: 'abortStreaming' });
         chrome.runtime.sendMessage({ type: 'stop' });
         this.isPlaying = false;
       }
