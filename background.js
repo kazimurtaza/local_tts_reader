@@ -60,7 +60,7 @@ async function processAndReadText(text, tabId) {
   try {
     // Get default settings
     const settings = await chrome.storage.local.get({
-      serverUrl: 'http://localhost:8000/v1/audio/speech',
+      serverUrl: 'http://10.0.0.172:8880/v1/audio/speech',
       voice: 'af_bella',
       speed: 1.0,
       recordAudio: false,
