@@ -5,7 +5,9 @@ function updateStatus(message, isError = false) {
   const status = document.getElementById('status');
   status.textContent = message;
   status.className = `visible ${isError ? 'error' : 'success'}`;
-  setTimeout(() => status.className = '', 3000);
+  if (!isError) {
+    setTimeout(() => status.className = '', 3000);
+  }
 }
 
 function updateControlButtons(state) {
