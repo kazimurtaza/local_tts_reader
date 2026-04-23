@@ -297,7 +297,7 @@ async function fetchAndSendChunk(text, settings) {
 
     chrome.runtime.sendMessage({
       type: 'processAudioData',
-      audioData: arrayBuffer.buffer,
+      audioData: arrayBuffer,
       mimeType: mimeType,
       isRecording: isRecording && isLastChunk
     });
