@@ -300,6 +300,27 @@
       <label for="serverUrl">Server URL</label>
       <input type="text" id="serverUrl">
     </div>
+
+    <div class="setting-group">
+      <label for="apiKey">API Key</label>
+      <input type="password" id="apiKey" placeholder="Leave empty if not required">
+    </div>
+
+    <div class="setting-group">
+      <label for="model">Model</label>
+      <input type="text" id="model" placeholder="tts-1">
+    </div>
+
+    <div class="setting-group">
+      <label for="responseFormat">Audio Format</label>
+      <select id="responseFormat">
+        <option value="mp3">MP3</option>
+        <option value="opus">OPUS</option>
+        <option value="aac">AAC</option>
+        <option value="wav">WAV</option>
+        <option value="pcm">PCM</option>
+      </select>
+    </div>
   </div>
 
   <div id="status"></div>

@@ -3,7 +3,10 @@ const DEFAULT_SETTINGS = {
     voice: 'af_bella',
     speed: 1.0,
     recordAudio: false,
-    preprocessText: true
+    preprocessText: true,
+    apiKey: '',
+    model: 'tts-1',
+    responseFormat: 'mp3'
   };
   
   if (typeof module !== 'undefined' && module.exports) {

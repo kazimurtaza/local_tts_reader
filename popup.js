@@ -72,7 +72,10 @@ function getSettings() {
     voice: document.getElementById('voice').value,
     speed: document.getElementById('speed').value,
     recordAudio: document.getElementById('recordAudio').checked,
-    preprocessText: document.getElementById('preprocessText').checked
+    preprocessText: document.getElementById('preprocessText').checked,
+    apiKey: document.getElementById('apiKey').value,
+    model: document.getElementById('model').value,
+    responseFormat: document.getElementById('responseFormat').value
   };
 }
 
@@ -155,13 +158,19 @@ document.addEventListener('DOMContentLoaded', async function() {
     voice: DEFAULT_SETTINGS.voice,
     speed: DEFAULT_SETTINGS.speed,
     recordAudio: DEFAULT_SETTINGS.recordAudio,
-    preprocessText: DEFAULT_SETTINGS.preprocessText
+    preprocessText: DEFAULT_SETTINGS.preprocessText,
+    apiKey: DEFAULT_SETTINGS.apiKey,
+    model: DEFAULT_SETTINGS.model,
+    responseFormat: DEFAULT_SETTINGS.responseFormat
   }, function(result) {
     document.getElementById('serverUrl').value = result.serverUrl;
     document.getElementById('voice').value = result.voice;
     document.getElementById('speed').value = result.speed;
     document.getElementById('recordAudio').checked = result.recordAudio;
     document.getElementById('preprocessText').checked = result.preprocessText;
+    document.getElementById('apiKey').value = result.apiKey;
+    document.getElementById('model').value = result.model;
+    document.getElementById('responseFormat').value = result.responseFormat;
     document.querySelector('.speed-value').textContent = `${result.speed}x`;
   });
   
@@ -270,7 +279,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   });
   
   // Save settings
-  ['serverUrl', 'voice', 'speed', 'recordAudio', 'preprocessText'].forEach(id => {
+  ['serverUrl', 'voice', 'speed', 'recordAudio', 'preprocessText', 'apiKey', 'model', 'responseFormat'].forEach(id => {
     document.getElementById(id).addEventListener('change', saveSettings);
   });
   

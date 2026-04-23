@@ -65,7 +65,10 @@ async function processAndReadText(text, tabId) {
       voice: 'af_bella',
       speed: 1.0,
       recordAudio: false,
-      preprocessText: true
+      preprocessText: true,
+      apiKey: '',
+      model: 'tts-1',
+      responseFormat: 'mp3'
     });
     
     // Process text if enabled
@@ -201,17 +204,23 @@ async function startStreamingAudio(text, settings) {
 
     currentAbortController = new AbortController();
 
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'audio/mpeg, audio/wav, audio/*'
+    };
+    if (settings.apiKey) {
+      headers['Authorization'] = `Bearer ${settings.apiKey}`;
+    }
+
     const response = await fetch(settings.serverUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'audio/mpeg, audio/wav, audio/*'
-      },
+      headers: headers,
       body: JSON.stringify({
-        model: 'tts-1',
+        model: settings.model || 'tts-1',
         voice: settings.voice,
         input: text,
         speed: parseFloat(settings.speed),
+        response_format: settings.responseFormat || 'mp3',
         stream: false
       }),
       signal: currentAbortController.signal
