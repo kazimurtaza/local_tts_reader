@@ -2,10 +2,6 @@ let offscreenDocument = null;
 let isRecording = false;
 let currentPlayerState = 'stopped';
 let currentAbortController = null;
-let chunkQueue = [];
-let currentChunkIndex = 0;
-let isChunkedMode = false;
-let lastSettings = null;
 
 // Create or get the offscreen document
 async function setupOffscreenDocument() {
@@ -196,19 +192,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         currentAbortController.abort();
         currentAbortController = null;
       }
-      isChunkedMode = false;
-      chunkQueue = [];
       sendResponse({ success: true });
-      return true;
-
-    case 'streamComplete':
-      if (isChunkedMode && currentChunkIndex < chunkQueue.length - 1) {
-        currentChunkIndex++;
-        fetchAndSendChunk(chunkQueue[currentChunkIndex], lastSettings);
-      } else {
-        isChunkedMode = false;
-        chunkQueue = [];
-      }
       return true;
 
     case 'fetchVoices':
@@ -231,33 +215,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Split text into chunks at sentence boundaries
-function chunkText(text, maxChunkSize = 500) {
-  if (text.length <= maxChunkSize) return [text];
-
-  const chunks = [];
-  let remaining = text;
-
-  while (remaining.length > 0) {
-    if (remaining.length <= maxChunkSize) {
-      chunks.push(remaining);
-      break;
-    }
-
-    let splitPoint = remaining.lastIndexOf('. ', maxChunkSize);
-    if (splitPoint < maxChunkSize * 0.3) splitPoint = remaining.lastIndexOf('! ', maxChunkSize);
-    if (splitPoint < maxChunkSize * 0.3) splitPoint = remaining.lastIndexOf('? ', maxChunkSize);
-    if (splitPoint < maxChunkSize * 0.3) splitPoint = remaining.lastIndexOf(' ', maxChunkSize);
-    if (splitPoint < 1) splitPoint = maxChunkSize;
-
-    chunks.push(remaining.substring(0, splitPoint + 1).trim());
-    remaining = remaining.substring(splitPoint + 1).trim();
-  }
-
-  return chunks;
-}
-
-// Fetch a single chunk and send to offscreen document
+// Fetch audio with streaming support
 async function fetchAndSendChunk(text, settings) {
   try {
     currentAbortController = new AbortController();
@@ -279,7 +237,7 @@ async function fetchAndSendChunk(text, settings) {
         input: text,
         speed: parseFloat(settings.speed),
         response_format: settings.responseFormat || 'mp3',
-        stream: false
+        stream: true
       }),
       signal: currentAbortController.signal
     });
@@ -288,19 +246,33 @@ async function fetchAndSendChunk(text, settings) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const audioBlob = await response.blob();
-    const mimeType = audioBlob.type || 'audio/mpeg';
-    const arrayBuffer = await audioBlob.arrayBuffer();
+    // Read the streaming response progressively
+    const reader = response.body.getReader();
+    const chunks = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+
+    // Assemble into a single ArrayBuffer
+    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const arrayBuffer = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      arrayBuffer.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    const mimeType = response.headers.get('content-type') || 'audio/mpeg';
 
     currentAbortController = null;
 
-    const isLastChunk = !isChunkedMode || currentChunkIndex >= chunkQueue.length - 1;
-
     chrome.runtime.sendMessage({
       type: 'processAudioData',
-      audioData: arrayBuffer,
+      audioData: arrayBuffer.buffer,
       mimeType: mimeType,
-      isRecording: isRecording && isLastChunk
+      isRecording: isRecording
     });
   } catch (error) {
     if (error.name === 'AbortError') {
@@ -308,8 +280,6 @@ async function fetchAndSendChunk(text, settings) {
       chrome.runtime.sendMessage({ type: 'playerStateUpdate', state: 'stopped' });
       return;
     }
-    isChunkedMode = false;
-    chunkQueue = [];
     console.error('Error streaming audio:', error);
     chrome.runtime.sendMessage({
       type: 'streamError',
@@ -326,19 +296,7 @@ async function fetchAndSendChunk(text, settings) {
 // Start streaming audio from the TTS server
 async function startStreamingAudio(text, settings) {
   await setupOffscreenDocument();
-
-  lastSettings = settings;
-  const chunks = chunkText(text);
-
-  if (chunks.length <= 1) {
-    isChunkedMode = false;
-    await fetchAndSendChunk(chunks[0], settings);
-  } else {
-    isChunkedMode = true;
-    chunkQueue = chunks;
-    currentChunkIndex = 0;
-    await fetchAndSendChunk(chunkQueue[0], settings);
-  }
+  await fetchAndSendChunk(text, settings);
 }
 
 // Initialize context menu when extension is installed or updated
