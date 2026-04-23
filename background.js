@@ -6,6 +6,7 @@ let chunkQueue = [];
 let currentChunkIndex = 0;
 let isChunkedMode = false;
 let lastSettings = null;
+let preFetchedChunks = {};  // index -> { audioData, mimeType }
 
 // Create or get the offscreen document, re-creating if Chrome auto-closed it
 async function setupOffscreenDocument() {
@@ -236,6 +237,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       isChunkedMode = false;
       chunkQueue = [];
+      preFetchedChunks = {};
       sendResponse({ success: true });
       return true;
 
@@ -243,11 +245,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (isChunkedMode && currentChunkIndex < chunkQueue.length - 1) {
         currentChunkIndex++;
         if (lastSettings) {
-          fetchAndSendChunk(chunkQueue[currentChunkIndex], lastSettings);
+          fetchAndSendChunk(chunkQueue[currentChunkIndex], lastSettings, currentChunkIndex);
         }
       } else {
         isChunkedMode = false;
         chunkQueue = [];
+        preFetchedChunks = {};
       }
       return true;
 
@@ -300,54 +303,80 @@ function chunkText(text, maxChunkSize = 500) {
   return chunks;
 }
 
-// Fetch audio for a single text chunk
-async function fetchAndSendChunk(text, settings) {
+// Fetch audio data from server (no offscreen send)
+async function fetchAudioData(text, settings) {
+  const controller = new AbortController();
+  const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'audio/mpeg, audio/wav, audio/*'
+  };
+  if (settings.apiKey) {
+    headers['Authorization'] = `Bearer ${settings.apiKey}`;
+  }
+
+  const response = await fetch(settings.serverUrl, {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify({
+      model: settings.model || 'tts-1',
+      voice: settings.voice,
+      input: text,
+      speed: parseFloat(settings.speed),
+      response_format: settings.responseFormat || 'mp3',
+      stream: false
+    }),
+    signal: controller.signal
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return { audioData: Array.from(new Uint8Array(arrayBuffer)), mimeType: 'audio/mpeg' };
+}
+
+// Pre-fetch the next chunk in the background while current one plays
+function prefetchNextChunk() {
+  const nextIndex = currentChunkIndex + 1;
+  if (nextIndex < chunkQueue.length && !preFetchedChunks[nextIndex] && lastSettings) {
+    fetchAudioData(chunkQueue[nextIndex], lastSettings)
+      .then(data => { preFetchedChunks[nextIndex] = data; })
+      .catch(() => {});  // silently fail — will retry on streamComplete
+  }
+}
+
+// Fetch audio for a single text chunk and send to offscreen
+async function fetchAndSendChunk(text, settings, chunkIndex) {
   try {
-    currentAbortController = new AbortController();
-
-    const headers = {
-      'Content-Type': 'application/json',
-      'Accept': 'audio/mpeg, audio/wav, audio/*'
-    };
-    if (settings.apiKey) {
-      headers['Authorization'] = `Bearer ${settings.apiKey}`;
+    // Use pre-fetched data if available, otherwise fetch now
+    let audioData, mimeType;
+    if (preFetchedChunks[chunkIndex]) {
+      ({ audioData, mimeType } = preFetchedChunks[chunkIndex]);
+      delete preFetchedChunks[chunkIndex];
+    } else {
+      currentAbortController = new AbortController();
+      const result = await fetchAudioData(text, settings);
+      audioData = result.audioData;
+      mimeType = result.mimeType;
+      currentAbortController = null;
     }
 
-    const response = await fetch(settings.serverUrl, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        model: settings.model || 'tts-1',
-        voice: settings.voice,
-        input: text,
-        speed: parseFloat(settings.speed),
-        response_format: settings.responseFormat || 'mp3',
-        stream: false
-      }),
-      signal: currentAbortController.signal
-    });
+    const isLastChunk = !isChunkedMode || chunkIndex >= chunkQueue.length - 1;
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    const mimeType = 'audio/mpeg';
-
-    currentAbortController = null;
-
-    const isLastChunk = !isChunkedMode || currentChunkIndex >= chunkQueue.length - 1;
-
-    // Ensure offscreen document is alive before sending (Chrome kills it after 30s)
     await setupOffscreenDocument();
 
     await sendToOffscreen({
       type: 'processAudioData',
-      audioData: Array.from(uint8Array),
+      audioData: audioData,
       mimeType: mimeType,
       isRecording: isRecording && isLastChunk
     });
+
+    // Start pre-fetching the next chunk immediately
+    if (isChunkedMode && chunkIndex < chunkQueue.length - 1) {
+      prefetchNextChunk();
+    }
   } catch (error) {
     if (error.name === 'AbortError') {
       currentPlayerState = 'stopped';
@@ -356,6 +385,7 @@ async function fetchAndSendChunk(text, settings) {
     }
     isChunkedMode = false;
     chunkQueue = [];
+    preFetchedChunks = {};
     console.error('Error streaming audio:', error);
     chrome.runtime.sendMessage({
       type: 'streamError',
@@ -372,18 +402,19 @@ async function fetchAndSendChunk(text, settings) {
 // Start streaming audio from the TTS server
 async function startStreamingAudio(text, settings) {
   lastSettings = settings;
+  preFetchedChunks = {};
   await setupOffscreenDocument();
 
   const chunks = chunkText(text);
 
   if (chunks.length <= 1) {
     isChunkedMode = false;
-    await fetchAndSendChunk(chunks[0], settings);
+    await fetchAndSendChunk(chunks[0], settings, 0);
   } else {
     isChunkedMode = true;
     chunkQueue = chunks;
     currentChunkIndex = 0;
-    await fetchAndSendChunk(chunkQueue[0], settings);
+    await fetchAndSendChunk(chunkQueue[0], settings, 0);
   }
 }
 
@@ -418,6 +449,9 @@ chrome.commands.onCommand.addListener(async (command) => {
       currentAbortController.abort();
       currentAbortController = null;
     }
+    isChunkedMode = false;
+    chunkQueue = [];
+    preFetchedChunks = {};
     sendToOffscreen({ type: 'stop' });
     currentPlayerState = 'stopped';
     chrome.runtime.sendMessage({ type: 'playerStateUpdate', state: 'stopped' });
