@@ -1,1 +1,6 @@
 local.md
+node_modules/
+tests/
+vitest.config.js
+package.json
+package-lock.json
